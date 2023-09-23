@@ -62,7 +62,7 @@ if __name__ == "__main__":
     import unittest
     
     # Define the test
-    class TestChunkIterable(unittest.TestCase):
+    class ChunkIterableTestCases(unittest.TestCase):
         # Supported types
         def test_chunk_list_into_2s(self):
             iterable = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
