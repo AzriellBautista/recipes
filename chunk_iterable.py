@@ -2,53 +2,61 @@ from collections import deque
 from collections.abc import Iterator
 from typing import Any, Iterable
 
+
 def chunk_iterable(
-    __iterable: Iterable,
-    __chunk_size: int = 1, 
+    iterable: Iterable,
     /,
+    size: int = 1, 
 ) -> Iterator[Iterable[Any]]:
     """Split an iterable into chunks of a specified size.
+    
+    Notes:
+        Iterable type is preserved on chunking, i.e. an input of tuple is 
+        chunked into several tuples. Supports strings as an iterable and yields 
+        slices of the string.
 
     Args:
         iterable (Iterable): The iterable to be chunked.
-        chunk_size (int, optional): The size of each chunk. Default is 1.
+        size (int, optional): The size of each chunk. Default is 1.
 
     Yields:
         Iterator[Iterable[Any]]: An iterator yielding chunks of the input 
                                  iterable.
         
     Raises:
-        TypeError: If the input is not an iterable or the chunk size is not an
+        TypeError: If the input is not an iterable or the size is not an
                    integer.
-        ValueError: If the chunk size is not a positive integer.
+        ValueError: If the size is not a positive integer.
     """
     # Validate arguments
-    if not isinstance(__iterable, Iterable):
+    if not isinstance(iterable, Iterable):
         raise TypeError("Iterable to be chunked expected type `Iterable`. "
-                        f"Got `{type(__iterable).__name__}`.")
+                        f"Got `{type(iterable).__name__}`.")
         
-    if not isinstance(__chunk_size, int):
+    if not isinstance(size, int):
         raise TypeError("Chunk size expected type `int`. "
-                        f"Got `{type(__chunk_size).__name__}`.")
-        
-    if __chunk_size <= 0:
-        raise ValueError("Chunk size must be positive integer.")
+                        f"Got `{type(size).__name__}`.")
+                
+    if size <= 0:
+        raise ValueError("Chunk size must be a positive integer.")
     
-    if isinstance(__iterable, str):
+    # Perform chunking of iterable
+    if isinstance(iterable, str):
         dequed = deque(
-            __iterable[i:i + __chunk_size]
-            for i in range(0, len(__iterable), __chunk_size)
+            iterable[i:i + size]
+            for i in range(0, len(iterable), size)
         )
         while dequed:
             yield dequed.popleft()
     else:
-        dequed = deque(__iterable)
+        dequed = deque(iterable)
         while dequed:        
-            yield type(__iterable)(
+            yield type(iterable)(
                 dequed.popleft() 
-                for _ in range(__chunk_size) 
+                for _ in range(size) 
                 if dequed
             )
+            
 
 if __name__ == "__main__":
     import unittest
@@ -79,9 +87,8 @@ if __name__ == "__main__":
         
         def test_chunk_empty_list(self):
             iterable = []
-            chunk_size = 1
             expected = []
-            actual = list(chunk_iterable(iterable, chunk_size))
+            actual = list(chunk_iterable(iterable))
             self.assertEqual(expected, actual)
             
         def test_chunk_str_into_2s(self):
@@ -104,6 +111,18 @@ if __name__ == "__main__":
             expected = [{1, 2}, {3, 4}, {5, 6}, {7, 8}, {9, 10}]
             actual = list(chunk_iterable(iterable, chunk_size))
             self.assertEqual(expected, actual)
+            
+        def test_chunk_list_default_chunk_size_arg(self):
+            iterable = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            expected = [[1], [2], [3], [4], [5], [6], [7], [8], [9], [10]]
+            actual = list(chunk_iterable(iterable))
+            self.assertEqual(expected, actual)
+    
+        def test_chunk_str_default_chunk_size_arg(self):
+            iterable = "abcdefghij"
+            expected = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
+            actual = list(chunk_iterable(iterable))
+            self.assertEqual(expected, actual)
         
         # Test exceptions
         def test_chunk_list_into_0s(self):
@@ -114,7 +133,7 @@ if __name__ == "__main__":
                 list(chunk_iterable(iterable, chunk_size))
                 
             self.assertEqual(
-                "Chunk size must be positive integer.",
+                "Chunk size must be a positive integer.",
                 exception_context.exception.args[0]
             )
         
@@ -127,7 +146,7 @@ if __name__ == "__main__":
                 
             self.assertEqual(
                 "Iterable to be chunked expected type `Iterable`. Got `bool`.",
-                exception_context.exception.args[0]
+                str(exception_context.exception)
             )
             
     # Run the tests
