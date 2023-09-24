@@ -1,15 +1,15 @@
-# This module is a wrapper built for logging module of Python. This module 
-# provides a setup_logger() function to easily setup a logger on use with other 
-# modules of your project. By default, the logger will log to the console via 
-# std.out. You can also specify a file to log to by setting the file parameter 
+# This module is a wrapper built for logging module of Python. This module
+# provides a setup_logger() function to easily setup a logger on use with other
+# modules of your project. By default, the logger will log to the console via
+# std.out. You can also specify a file to log to by setting the file parameter
 # to the path of the file.
-# 
-# Tested on Python 3.11.0 and requires termcolor for colored stream output
-# support.
-#  
+#
+# Tested on Python 3.11.0 and optionally requires termcolor (tested on 2.2.0) 
+# for colored stream output support.
+#
 # Default log record format is as follows:
 # [<datetime>] [<level>] [<name>] [<filename>:<function>:<lineno>] - <message>
-# 
+#
 # Example usage:
 # >>> from logger import setup_logger
 # >>> my_logger = setup_logger(name="my_logger", file="my_log.log")
@@ -30,54 +30,68 @@ from typing import TextIO
 from sys import stdout
 from pathlib import Path
 
-from termcolor import colored  # tested on version 2.2.0
+# Make termcolor an optional dependency.
+# Try to import colored from termcolor, else set colored to None.
+# The setup_logger() function will check if colored is available and will raise
+# ModuleNotFoundError if it is not available.
+try:
+    from termcolor import colored
+except ModuleNotFoundError:
+    colored = None
+else:
+    # * Insert LOGGING_COLORS and ColoredFormatter since termcolor exists.
+
+    # This dictionary maps the logging level to the color format to be used in
+    # the ColoredFormatter class.
+    LOGGING_COLORS = {
+        logging.NOTSET: dict(color="grey"),
+        logging.DEBUG: dict(color="magenta", attrs=["bold"]),
+        logging.INFO: dict(color="blue"),
+        logging.WARNING: dict(color="yellow"),
+        logging.ERROR: dict(color="red"),
+        logging.CRITICAL: dict(color="white", on_color="on_red", attrs=["bold"]),
+    }
+
+    # A custom formatter that allows coloring of the log messages.
+    class ColoredFormatter(logging.Formatter):
+        """A custom formatter that allows coloring of the log messages.
+
+        The log messages will be colored based on the level of the message.
+
+        Args:
+            fmt (str, optional): Format of the logs.
+            datefmt (str, optional): Date format of the logs.
+        """
+
+        def format(self, record: logging.LogRecord) -> str:
+            """Formats the log record.
+
+            Args:
+                record (logging.LogRecord): Log record to be formatted.
+
+            Returns:
+                str: Formatted log record.
+            """
+
+            # Set the color of the log message based on the level of the message
+            formatter = logging.Formatter(
+                colored(self._fmt, **LOGGING_COLORS.get(record.levelno, {})),
+                self.datefmt
+            )
+
+            return formatter.format(record)
 
 
 __author__ = "Azriell Bautista"
 __email__ = "azri.ell@yahoo.com"
-__version__ = "1.0.0"
-    
+__version__ = "1.0.1"
 
-# This dictionary maps the logging level to the color format used in ColoredFormatter
-LOGGING_COLORS = {
-    logging.NOTSET: dict(color="grey"),
-    logging.DEBUG: dict(color="magenta", attrs=["bold"]),
-    logging.INFO: dict(color="blue"),
-    logging.WARNING: dict(color="yellow"),
-    logging.ERROR: dict(color="red"),
-    logging.CRITICAL: dict(color="white", on_color="on_red", attrs=["bold"]),
-}
-
-
-# A custom formatter that allows coloring of the log messages.
-class ColoredFormatter(logging.Formatter):
-    """A custom formatter that allows coloring of the log messages.
-
-    The log messages will be colored based on the level of the message.
-
-    Args:
-        fmt (str, optional): Format of the logs.
-        datefmt (str, optional): Date format of the logs.
-    """
-
-    def format(self, record: logging.LogRecord) -> str:
-        """Formats the log record.
-
-        Args:
-            record (logging.LogRecord): Log record to be formatted.
-
-        Returns:
-            str: Formatted log record.
-        """
-        
-        # Set the color of the log message based on the level of the message
-        formatter = logging.Formatter(
-            colored(self._fmt, **LOGGING_COLORS.get(record.levelno, {})), 
-            self.datefmt
-        )
-
-        return formatter.format(record)
-    
+# _FMT and _DATEFMT are the default format and date format of the logger used
+# in this module.
+_FMT = "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] " \
+       "[%(filename)s:%(funcName)s:%(lineno)s] - %(message)s"
+       
+_DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 # The setup_logger() function sets up a basic logger with general use configurations
 def setup_logger(
@@ -85,11 +99,10 @@ def setup_logger(
     *,
     level: int = logging.DEBUG,
     stream: TextIO | None = stdout,
-    colored_stream: bool = True,
+    colored_stream: bool = False,
     file: str | Path | None = None,
-    fmt: str = "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] "
-               "[%(filename)s:%(funcName)s:%(lineno)s] - %(message)s",
-    datefmt: str = "%Y-%m-%d %H:%M:%S",
+    fmt: str = _FMT,
+    datefmt: str = _DATEFMT,
     propagate: bool = True,
     parent: logging.Logger | None = None,
     disabled: bool = False,
@@ -107,7 +120,8 @@ def setup_logger(
         stream (TextIO | None, optional): Stream the logs will be written to. 
             Defaults to sys.stdout.
         colored_stream (bool, optional): Whether the logs on stream will be
-            colored. Defaults to True. If False, the logs will not be colored.
+            colored. Defaults to False. If True, the logs will be colored.
+            Requires termcolor module to be installed.
         file (str | Path | None, optional): Name of the file the logs will be 
             written to. If None is provided, no file will be written to. 
             Defaults to None.
@@ -122,9 +136,13 @@ def setup_logger(
 
     Returns:
         logging.Logger: The logger.
-        
+
     Raises:
+        ModuleNotFoundError: If the termcolor module is not installed and 
+            colored_stream=True.
+        TypeError: If the file is not a string or a Path object.
         ValueError: If the stream is not a file-like object.
+        ValueError: If the file is empty or is a directory.
     """
 
     logger = logging.getLogger(name)
@@ -139,30 +157,37 @@ def setup_logger(
     logger.propagate = propagate
     logger.parent = parent
 
+    # Check if `termcolor` module is installed. If not, raise a ModuleNotFoundError.
+    if colored_stream and colored is None:
+        raise ModuleNotFoundError(
+            "colored_stream=True requires the `termcolor` module to be installed"
+        )
+
     # Setup the stream formatter to use colored stream if colored_stream=True.
     # Otherwise, use the default formatter.
     stream_formatter = ColoredFormatter(fmt, datefmt) \
-                       if colored_stream \
-                       else logging.Formatter(fmt, datefmt)
+        if colored_stream \
+        else logging.Formatter(fmt, datefmt)
 
     if stream is not None:
-        # Validate if stream is a file-like object by checking if it has a write 
+        # Validate if stream is a file-like object by checking if it has a write
         # method. If not, raise a TypeError.
-        if not(hasattr(stream, "write") and callable(getattr(stream, "write"))):
+        # Alternative is to check stream is an instance of io.TextIOWrapper.
+        if not (hasattr(stream, "write") and callable(getattr(stream, "write"))):
             raise TypeError("stream must be a file-like object")
-              
+
         # Set the stream handler to use the stream formatter.
         stream_handler = logging.StreamHandler(stream)
-        # Set the appropriate formatter for the stream handler and then add the 
-        # handler to the logger. 
+        # Set the appropriate formatter for the stream handler and then add the
+        # handler to the logger.
         stream_handler.setFormatter(stream_formatter)
         logger.addHandler(stream_handler)
 
     if file is not None:
-        # If file is not a string or a Path object, raise a TypeError. 
+        # If file is not a string or a Path object, raise a TypeError.
         if not isinstance(file, (str, Path)):
             raise TypeError("file must be a string or a Path object")
-        
+
         # If file is a string, convert it to a Path object.
         if isinstance(file, str):
             file = Path(file)
@@ -170,7 +195,7 @@ def setup_logger(
         # If file is empty or is a directory, raise a ValueError.
         if not file or file.is_dir():
             raise ValueError("file cannot be an empty path or a directory")
-            
+
         # Create file handler and set the formatter.
         file_handler = logging.FileHandler(file, mode="a+")
         file_handler.setFormatter(logging.Formatter(fmt, datefmt))
@@ -182,14 +207,24 @@ def setup_logger(
 if __name__ == "__main__":
     # Print the docstring of the setup_logger function.
     print(setup_logger.__doc__)
-       
-    # Setup a logger that writes to the stream and file, with colored stream
-    # enabled (default is True).
+
+    # Setup a logger that writes to the stream and file
     logger = setup_logger(__name__, file=".log")
-    
-    # Test the logger for different logging levels, note the colors on console.
+
+    # Test the logger for different logging levels
     logger.debug("This is a debug message.")
     logger.info("This is an info message.")
     logger.warning("This is a warning message.")
     logger.error("This is an error message.")
     logger.critical("This is a critical message.")
+
+    # Setup a logger that writes to the stream only, with colored_stream=True
+    # If `termcolor` is not installed, the following should raise a ModuleNotFoundError.
+    colored_logger = setup_logger("colored_logger", colored_stream=True)
+    
+    # Test the logger for different logging levels, note the colors on console.
+    colored_logger.debug("This is a colored debug message.")
+    colored_logger.info("This is a colored info message.")
+    colored_logger.warning("This is a colored warning message.")
+    colored_logger.error("This is a colored error message.")
+    colored_logger.critical("This is a colored critical message.")
