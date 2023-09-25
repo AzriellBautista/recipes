@@ -20,15 +20,11 @@ This module provides a `setup_logger()` function to easily setup a logger to use
 on your project. Supports colored stream output via `termcolor`.
 """
 
-# TODO Support configurable colors for `setup_logger()`
-# TODO Add a new logging.LogRecord attribute called `minifiedPath` that shows
-# TODO ... the minified path to the current file being logged, i.e.:
-# TODO ... `/home/user/my_file.py` becomes `/h/u/my_file.py`
-
 import logging
-from typing import TextIO
+from typing import TextIO, Callable
 from sys import stdout
 from pathlib import Path
+
 
 # Make termcolor an optional dependency.
 # Try to import colored from termcolor, else set colored to None.
@@ -38,60 +34,111 @@ try:
     from termcolor import colored
 except ModuleNotFoundError:
     colored = None
-else:
-    # * Insert LOGGING_COLORS and ColoredFormatter since termcolor exists.
-
-    # This dictionary maps the logging level to the color format to be used in
-    # the ColoredFormatter class.
-    LOGGING_COLORS = {
-        logging.NOTSET: dict(color="grey"),
-        logging.DEBUG: dict(color="magenta", attrs=["bold"]),
-        logging.INFO: dict(color="blue"),
-        logging.WARNING: dict(color="yellow"),
-        logging.ERROR: dict(color="red"),
-        logging.CRITICAL: dict(color="white", on_color="on_red", attrs=["bold"]),
-    }
-
-    # A custom formatter that allows coloring of the log messages.
-    class ColoredFormatter(logging.Formatter):
-        """A custom formatter that allows coloring of the log messages.
-
-        The log messages will be colored based on the level of the message.
-
-        Args:
-            fmt (str, optional): Format of the logs.
-            datefmt (str, optional): Date format of the logs.
-        """
-
-        def format(self, record: logging.LogRecord) -> str:
-            """Formats the log record.
-
-            Args:
-                record (logging.LogRecord): Log record to be formatted.
-
-            Returns:
-                str: Formatted log record.
-            """
-
-            # Set the color of the log message based on the level of the message
-            formatter = logging.Formatter(
-                colored(self._fmt, **LOGGING_COLORS.get(record.levelno, {})),
-                self.datefmt
-            )
-
-            return formatter.format(record)
-
-
+    
+    
 __author__ = "Azriell Bautista"
 __email__ = "azri.ell@yahoo.com"
-__version__ = "1.0.1"
+__version__ = "1.1.0"
+    
 
 # _FMT and _DATEFMT are the default format and date format of the logger used
 # in this module.
 _FMT = "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] " \
-       "[%(filename)s:%(funcName)s:%(lineno)s] - %(message)s"
-       
+       "[%(shortPathname)s:%(funcName)s:%(lineno)s] - %(message)s"
 _DATEFMT = "%Y-%m-%d %H:%M:%S"
+
+# The log messages will be colored based on the level of the message.
+# To change colors of a log message, you can do the following:
+#
+# >>> import logging
+# >>> from logger import _LOGGING_COLORS
+# >>> _LOGGING_COLORS.update({ logging.DEBUG: dict(color="green") })
+# >>> from logger import setup_logger
+# >>> my_logger = setup_logger(name="my_logger", colored_stream=True)
+# >>> my_logger.debug("I am now a green debug log.")
+_LOGGING_COLORS = {
+    logging.NOTSET: dict(color="grey"),
+    logging.DEBUG: dict(color="magenta", attrs=["bold"]),
+    logging.INFO: dict(color="blue"),
+    logging.WARNING: dict(color="yellow"),
+    logging.ERROR: dict(color="red"),
+    logging.CRITICAL: dict(color="white", on_color="on_red", attrs=["bold"]),
+}
+
+# Sets the maximum number of preceding directories to be shown for the 
+# %(shortPathname)s log record attribute.
+_MAX_FOLDERS = 2
+
+
+# A custom formatter for logging messages.
+class CustomFormatter(logging.Formatter):
+    """A custom formatter for logging messages.
+
+    Additinal log record attributes:
+        %(minifiedPath)s - Minifies the pathname attribute of the LogRecord of 
+            the current file being logged, i.e.: the path a long path like 
+            /home/user/project/src/my_module.py becomes /h/u/p/s/my_module.py
+            
+        %(shortFilename)s - Shortens the filename attribute of the LogRecord to
+            less than 20 characters including the extension, i.e.: a file named
+            very_long_module_filename.py becomes ver~dule_filename.py
+            
+        %(shortPathname)s - Shortens the pathname attribute of the LogRecord by
+            ommitting first few folders of the path and show only the nearest
+            folder name, i.e.: /home/user/project/src/my_module.py becomes
+            (...)project/src/my_module.py
+            
+    Args:
+        fmt (str, optional): Format of the logs.
+        datefmt (str, optional): Date format of the logs.
+    """
+    def __init__(self, fmt: str = _FMT, datefmt: str = _DATEFMT, colored_stream: bool = False) -> None:
+        super().__init__(fmt, datefmt)
+        
+        self.colored_stream = colored_stream
+        # Insert check for termcolor here to be reusable by others.
+        if self.colored_stream:
+            # Check if termcolor is available.
+            _raise_exception_if_no_termcolor(colored)
+        
+    def format(self, record: logging.LogRecord) -> str:
+        """Formats the given record. Add additional records here.
+
+        Args:
+            record (logging.LogRecord): The record to format.
+
+        Returns:
+            str: The formatted record.
+        """
+        # Create minifiedPath record attribute.
+        path_parts = Path(record.pathname).resolve().parts
+        sep: str = __import__("os").path.sep
+        minified_path = sep.join([part[0] for part in path_parts[:-1]] + [path_parts[-1]])
+        setattr(record, "minifiedPath", minified_path)
+            
+        # Create shortFilename record attribute.
+        short_filename = f"{fname[:3]}~{fname[-16:]}" \
+                            if len(fname := record.filename) > 20 \
+                            else fname
+        setattr(record, "shortFilename", short_filename)
+        
+        # Create shortPath record attribute.        
+        short_pathname = "(...)" + sep.join(path_parts[-_MAX_FOLDERS - 1:]) \
+                         if len(path_parts) > _MAX_FOLDERS \
+                         else record.pathname
+        setattr(record, "shortPathname", short_pathname)
+            
+        # If termcolor is available, add color to the custom formatter.
+        if self.colored_stream:
+            formatter = logging.Formatter(
+                colored(self._fmt, **_LOGGING_COLORS.get(record.levelno, {})),
+                self.datefmt
+            )
+                
+            return formatter.format(record)
+        
+        return super().format(record)
+
 
 # The setup_logger() function sets up a basic logger with general use configurations
 def setup_logger(
@@ -158,16 +205,12 @@ def setup_logger(
     logger.parent = parent
 
     # Check if `termcolor` module is installed. If not, raise a ModuleNotFoundError.
-    if colored_stream and colored is None:
-        raise ModuleNotFoundError(
-            "colored_stream=True requires the `termcolor` module to be installed"
-        )
+    if colored_stream:
+        _raise_exception_if_no_termcolor(colored)
 
     # Setup the stream formatter to use colored stream if colored_stream=True.
     # Otherwise, use the default formatter.
-    stream_formatter = ColoredFormatter(fmt, datefmt) \
-        if colored_stream \
-        else logging.Formatter(fmt, datefmt)
+    stream_formatter = CustomFormatter(fmt, datefmt, colored_stream)
 
     if stream is not None:
         # Validate if stream is a file-like object by checking if it has a write
@@ -200,12 +243,27 @@ def setup_logger(
         file_handler = logging.FileHandler(file, mode="a+")
         file_handler.setFormatter(logging.Formatter(fmt, datefmt))
         logger.addHandler(file_handler)
-
+        
     return logger
 
 
+def _raise_exception_if_no_termcolor(colored: Callable | None) -> None:
+    """Raises a ModuleNotFoundError if termcolor is not installed.
+
+    Args:
+        colored (Callable | None): The termcolor.colored() function.
+    """
+    
+    # Check if termcolor is installed. If not, raise a ModuleNotFoundError.
+    if colored is None:
+        raise ModuleNotFoundError(
+            "colored_stream=True requires the `termcolor` module to be installed"
+        )
+    if not callable(colored):
+        raise TypeError("colored must be a callable")
+
 if __name__ == "__main__":
-    # Print the docstring of the setup_logger function.
+    # Print the docstring of the setup_logger function
     print(setup_logger.__doc__)
 
     # Setup a logger that writes to the stream and file
@@ -219,12 +277,14 @@ if __name__ == "__main__":
     logger.critical("This is a critical message.")
 
     # Setup a logger that writes to the stream only, with colored_stream=True
-    # If `termcolor` is not installed, the following should raise a ModuleNotFoundError.
+    # If `termcolor` is not installed, the following should raise a ModuleNotFoundError
     colored_logger = setup_logger("colored_logger", colored_stream=True)
     
-    # Test the logger for different logging levels, note the colors on console.
+    # Test the colored_logger for different logging levels
+    # Note the colors on console
     colored_logger.debug("This is a colored debug message.")
     colored_logger.info("This is a colored info message.")
     colored_logger.warning("This is a colored warning message.")
     colored_logger.error("This is a colored error message.")
     colored_logger.critical("This is a colored critical message.")
+    
