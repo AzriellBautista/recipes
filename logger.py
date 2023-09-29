@@ -26,14 +26,14 @@ import logging
 from functools import partial, wraps
 from inspect import currentframe
 from pathlib import Path
-from sys import  exc_info, stdout
+from sys import stderr, stdout
 from time import perf_counter
 from traceback import format_stack
 from typing import Any, Callable, TextIO
 
 # Make termcolor an optional dependency.
 # Try to import colored from termcolor, else set colored to None.
-# The _check_termcolor()  will check if termcolor.colored is available and will
+# The _check_termcolor() will check if termcolor.colored is available and will
 # raise exception if it is not properly installed.
 try:
     from termcolor import colored
@@ -79,7 +79,7 @@ _MAX_FOLDERS = 2
 _OMITTED_PATH_STR = "(...)"
 
 
-# A custom formatter for logging messages.
+# * A custom formatter class for logging messages.
 class CustomFormatter(logging.Formatter):
     """A custom formatter for logging messages.
 
@@ -107,6 +107,7 @@ class CustomFormatter(logging.Formatter):
         datefmt: str = _DATEFMT, 
         colored_stream: bool = False,
     ) -> None:
+        # Initialize
         super().__init__(fmt, datefmt)
         
         self.colored_stream = colored_stream
@@ -127,6 +128,7 @@ class CustomFormatter(logging.Formatter):
         Returns:
             str: The formatted record.
         """
+        
         # Create minifiedPath record attribute.
         path_parts = Path(record.pathname).resolve().parts
         # Path separator for Windows is '\', for POSIX is '/'.
@@ -160,7 +162,7 @@ class CustomFormatter(logging.Formatter):
         return super().format(record)
 
 
-# The setup_logger() function sets up a basic logger with general use configurations
+# * Sets up a basic logger with general use configurations.
 def setup_logger(
     name: str | None = None,
     *,
@@ -168,6 +170,7 @@ def setup_logger(
     stream: TextIO | None = stdout,
     colored_stream: bool = False,
     file: str | Path | None = None,
+    file_mode: str = "a+",
     fmt: str = _FMT,
     datefmt: str = _DATEFMT,
     propagate: bool = True,
@@ -192,6 +195,7 @@ def setup_logger(
         file (str | Path | None, optional): Name of the file the logs will be 
             written to. If None is provided, no file will be written to. 
             Defaults to None.
+        file_mode (str, optional): Mode of the file operation. Defaults to "a+".
         fmt (str, optional): Format of the logs.
         datefmt (str, optional): Date format of the logs.
         propagate (bool, optional): Propagate the logs to the parent logger.
@@ -233,11 +237,10 @@ def setup_logger(
     stream_formatter = CustomFormatter(fmt, datefmt, colored_stream)
 
     if stream is not None:
-        # Validate if stream is a file-like object by checking if it has a write
-        # method. If not, raise a TypeError.
-        # Alternative is to check stream is an instance of io.TextIOWrapper.
-        if not (hasattr(stream, "write") and callable(getattr(stream, "write"))):
-            raise TypeError("stream must be a file-like object")
+        # Validate if stream is a sys.stdout or sys.stderr stream.
+        # If not, raise a TypeError.
+        if stream not in {stdout, stderr}:
+            raise TypeError("stream can only be sys.stdout or sys.stderr")
 
         # Set the stream handler to use the stream formatter.
         stream_handler = logging.StreamHandler(stream)
@@ -260,14 +263,21 @@ def setup_logger(
             raise ValueError("file cannot be an empty path or a directory")
 
         # Create file handler and set the formatter.
-        file_handler = logging.FileHandler(file, mode="a+")
+        file_handler = logging.FileHandler(file, mode=file_mode)
         file_handler.setFormatter(logging.Formatter(fmt, datefmt))
         logger.addHandler(file_handler)
         
     return logger
 
 
-# Logs the execution time of the given function.
+# * A decorator function that logs the execution time of the given function.
+# TODO If possible, exclude this module in the traceback. 
+# When the original exception is re-raised, this module is included in the 
+# traceback when a function decorated with log_func_time is called inside a 
+# try-except block. Thus, any logger with exc_info=True will also include this
+# module in the traceback, leading to undesired verbosity. (Solution: Do not
+# use any logger with exc_info=True, since log_func_time prints the correct
+# exception traceback for you by default)
 def log_func_time(
     func: Callable| None = None,
     /, *, 
@@ -276,30 +286,30 @@ def log_func_time(
     show_result: bool = False,
     show_exception_traceback: bool = True,
     show_stack_info: bool = True,
-) -> Callable | None:
-    """Logs the execution time of the given function.
+) -> Callable:
+    """A decorator function that logs the execution time of the given function.
 
     Args:
-        func (Callable| None): The function to be logged. If None is provided,
-            this decorator will return a partial function that takes the function
-            to be logged as the first argument.
+        func (Callable| None): The function to be logged. Defaults to None.
         logger (logging.Logger): The logger to log the execution time.
-        show_args_kwargs (bool, optional): Whether to log the function arguments
-            and keyword arguments. Defaults to False.
+        show_args_kwargs (bool, optional): Whether to include the function's
+            positional arguments and keyword arguments in the log. Defaults to
+            False.
         show_result (bool, optional): Whether to log the function result.
-            Defaults to False. If True, the result will be logged.
-        show_exception_traceback (bool, optional): Whether to log the exception
-            traceback. Defaults to True.
-        show_stack_info (bool, optional): Whether to log the stack info.
-            Defaults to True.
+            Defaults to False. If True, the result will be included in the log.
+        show_exception_traceback (bool, optional): Whether to also include the
+            exception traceback in the log if an exception is raised. Defaults 
+            to True.
+        show_stack_info (bool, optional): Whether to log the stack info if an
+            exception is raised. Defaults to True.
 
     Returns:
-        Callable | None: The function to be logged. If None is provided, this
-            decorator will return a partial function that takes the function to
-            be logged as the first argument.
-
+        Callable | partial: If func is not None, the decorated function is
+            returned. Otherwise, return a partial function that takes keyword 
+            arguments relevant to the logging functionality.
+    
     Raises:
-        TypeError: If the logger is not a `logging.Logger`.
+        TypeError: If the logger is not a `logging.Logger` instance.
     """
     
     # Make sure that the logger is a `logging.Logger` object.
@@ -327,10 +337,6 @@ def log_func_time(
         Returns:
             Any: The result of the function to be logged.
         """
-
-        # Initialize result with None
-        # This is used to return the result of the function to be logged.
-        result = None
 
         # Get the current frame and get the filename and line number of the caller.
         if frame := currentframe().f_back:
@@ -373,56 +379,57 @@ def log_func_time(
             
         # If the function raises an exception, log the exception and set the
         # level of the log record to logging.ERROR.
-        except Exception as e:
+        except Exception as exc:
             # Get the exception traceback.
             # This is used to display the traceback in the logs.
-            exc_type, exc_value, exc_traceback = exc_info()
-            
-            # If show_exception_traceback=False, the traceback will not be
-            # displayed.
             if show_exception_traceback:
-                record.exc_info = exc_type, exc_value, exc_traceback
+                # record.exc_info = sys.exc_info()  # Shorthand for below
+                # exc.__traceback__.tb_next is used to exclude this module from 
+                # the traceback in the logs.
+                record.exc_info = type(exc), exc, exc.__traceback__.tb_next
                 
             # If show_stack_info=False, the call stack will not be displayed.
             if show_stack_info:
-                record.stack_info = "Call stack:\n" + "".join(format_stack()).rstrip()
-            
-            # Return the exception as the result of the function to be logged.
-            result = e.with_traceback(exc_traceback)
-            
+                record.stack_info = "Call stack:\n" \
+                                    + "".join(format_stack()[:-1]).rstrip()
+                        
             # Set an error message
             record.levelno = logging.ERROR
             record.levelname = logging.getLevelName(record.levelno)
             record.msg = f"{func.__name__}() did not finish due to " \
-                         f"{type(e).__name__} exception: {str(e)}"
+                         f"{type(exc).__name__} exception: {str(exc)}" \
+            
+            # Re-raise the exception
+            raise exc
         
-        # If the function did not raise an exception, log the execution time
+        # If the function did not raise an exception, log the execution time and
+        # log a completion message.
         else:
+            # End the timer
             end = perf_counter()
             
-            record.msg = f"{func.__name__}()"
+            # Format the completion message
+            record.msg = f"{func.__name__}() done in {end - start} seconds."
             
             # Append args and kwargs values on the message if show_args_kwargs=True
             if show_args_kwargs:
-                record.msg += f" with {args=}, {kwargs=}"
+                record.msg += f" With {args=} and {kwargs=}."
                 
             # Append the result of the function if show_result=True
             if show_result:
-                record.msg += f", {result=}"
+                record.msg += f" Returned {result}."
 
-            # Append the execution time
-            record.msg += f" done in {end - start} seconds."
+            # Return the result
+            return result
 
         # Display the message after execution.
         finally:
             logger.handle(record)
-            
-        return result
-
+    
     return wrapper
 
 
-# Raises a ModuleNotFoundError if termcolor is not installed.
+# * Raises a ModuleNotFoundError if termcolor is not installed.
 def _check_termcolor() -> None:
     """Raises a ModuleNotFoundError if termcolor is not installed.
 
