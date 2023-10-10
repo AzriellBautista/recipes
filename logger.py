@@ -43,13 +43,13 @@ except ModuleNotFoundError:
     
 __author__ = "Azriell Bautista"
 __email__ = "azri.ell@yahoo.com"
-__version__ = "1.3.0"
+__version__ = "1.3.1"
     
 
 # _FMT and _DATEFMT are the default format and date format of the logger used
 # in this module.
-_FMT = "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] " \
-       "[%(filename)s:%(funcName)s:%(lineno)s] - %(message)s"
+_FMT = ("[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] "
+        "[%(filename)s:%(funcName)s:%(lineno)s] - %(message)s")
 _DATEFMT = "%d%b%Y %H:%M:%S"
 
 # The log messages will be colored based on the level of the message.
@@ -106,16 +106,18 @@ class CustomFormatter(logging.Formatter):
         fmt: str = _FMT, 
         datefmt: str = _DATEFMT, 
         colored_stream: bool = False,
+        colors: dict[int, dict[str, str | list[str] | bool]] = _LOGGING_COLORS
     ) -> None:
         # Initialize
         super().__init__(fmt, datefmt)
-        
         self.colored_stream = colored_stream
+        
         # Insert check for termcolor here to be reusable by others.
-        if self.colored_stream:
+        if colored_stream:
             # Check if termcolor is available.
             _check_termcolor()
-        
+            self.colors = colors
+            
     def format(
         self, 
         record: logging.LogRecord,
@@ -139,24 +141,27 @@ class CustomFormatter(logging.Formatter):
         setattr(record, "minifiedPath", minified_path)
             
         # Create shortFilename record attribute.
-        short_filename = f"{fname[:3]}~{fname[-16:]}" \
-                         if len(fname := record.filename) > 20 \
-                         else fname
+        short_filename = (f"{fname[:3]}~{fname[-16:]}"
+                          if len(fname := record.filename) > 20
+                          else fname)
         setattr(record, "shortFilename", short_filename)
         
         # Create shortPath record attribute.        
         short_pathname = (_OMITTED_PATH_STR 
-                          + sep.join(path_parts[-_MAX_FOLDERS - 1:]) \
-                            if len(path_parts) > _MAX_FOLDERS \
-                            else record.pathname)
+                          + (sep.join(path_parts[-_MAX_FOLDERS - 1:])
+                             if len(path_parts) > _MAX_FOLDERS
+                             else record.pathname))
         setattr(record, "shortPathname", short_pathname)
             
         # If termcolor is available, add color to the custom formatter.
         if self.colored_stream:
-            formatter = logging.Formatter(
-                colored(self._fmt, **_LOGGING_COLORS.get(record.levelno, {})),
-                self.datefmt
-            )
+            try:
+                formatter = logging.Formatter(
+                    colored(self._fmt, **self.colors.get(record.levelno, {})),
+                    self.datefmt
+                )
+            except KeyError as e:
+                raise KeyError(f"Invalid color config.: {e}")
             return formatter.format(record)
         
         return super().format(record)
@@ -169,6 +174,7 @@ def setup_logger(
     level: int = logging.DEBUG,
     stream: TextIO | None = stdout,
     colored_stream: bool = False,
+    colors: dict[int, dict[str, str | list[str] | bool]] = _LOGGING_COLORS,
     file: str | Path | None = None,
     file_mode: str = "a+",
     fmt: str = _FMT,
@@ -192,6 +198,8 @@ def setup_logger(
         colored_stream (bool, optional): Whether the logs on stream will be
             colored. Defaults to False. If True, the logs will be colored.
             Requires termcolor module to be installed.
+        colors (dict[int, dict[str, str | list[str] | bool]], optional): 
+            Colors of the logs. Defaults to _LOGGING_COLORS.
         file (str | Path | None, optional): Name of the file the logs will be 
             written to. If None is provided, no file will be written to. 
             Defaults to None.
@@ -212,8 +220,8 @@ def setup_logger(
         ModuleNotFoundError: If the termcolor module is not installed and 
             colored_stream=True.
         TypeError: If the file is not a string or a Path object.
-        ValueError: If the stream is not a file-like object.
-        ValueError: If the file is empty or is a directory.
+        ValueError: If the stream is not a file-like object, or if the file is
+            empty or is a directory.
     """
 
     logger = logging.getLogger(name)
@@ -234,7 +242,7 @@ def setup_logger(
 
     # Setup the stream formatter to use colored stream if colored_stream=True.
     # Otherwise, use the default formatter.
-    stream_formatter = CustomFormatter(fmt, datefmt, colored_stream)
+    stream_formatter = CustomFormatter(fmt, datefmt, colored_stream, colors)
 
     if stream is not None:
         # Validate if stream is a sys.stdout or sys.stderr stream.
@@ -279,7 +287,7 @@ def setup_logger(
 # use any logger with exc_info=True, since log_func_time prints the correct
 # exception traceback for you by default)
 def log_func_time(
-    func: Callable| None = None,
+    func: Callable | None = None,
     /, *, 
     logger: logging.Logger,
     show_args_kwargs: bool = False,
@@ -351,7 +359,7 @@ def log_func_time(
         # This is used to create the log message in contrast to calling logger.log()
         # since several record attributes will not reflect the correct values such
         # as the pathname, lineno, and func. 
-        record = logging.LogRecord(name=logger.name, 
+        record = logging.LogRecord(name=logger.name if logger else "root", 
                                    level=logging.DEBUG,
                                    pathname=pathname,
                                    lineno=lineno,
@@ -390,14 +398,14 @@ def log_func_time(
                 
             # If show_stack_info=False, the call stack will not be displayed.
             if show_stack_info:
-                record.stack_info = "Call stack:\n" \
-                                    + "".join(format_stack()[:-1]).rstrip()
+                record.stack_info = ("Call stack:\n" 
+                                     "".join(format_stack()[:-1]).rstrip())
                         
             # Set an error message
             record.levelno = logging.ERROR
             record.levelname = logging.getLevelName(record.levelno)
-            record.msg = f"{func.__name__}() did not finish due to " \
-                         f"{type(exc).__name__} exception: {str(exc)}" \
+            record.msg = (f"{func.__name__}() did not finish due to " 
+                          f"{type(exc).__name__} exception: {str(exc)}")
             
             # Re-raise the exception
             raise exc
@@ -425,7 +433,7 @@ def log_func_time(
         # Display the message after execution.
         finally:
             logger.handle(record)
-    
+
     return wrapper
 
 
@@ -482,4 +490,3 @@ if __name__ == "__main__":
         colored_logger.warning("This is a colored warning message.")
         colored_logger.error("This is a colored error message.")
         colored_logger.critical("This is a colored critical message.")
-    
