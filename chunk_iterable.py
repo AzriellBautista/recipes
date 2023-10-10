@@ -5,8 +5,7 @@ from typing import Any, Iterable
 
 def chunk_iterable(
     iterable: Iterable,
-    /,
-    size: int = 1, 
+    n: int = 1,
 ) -> Iterator[Iterable[Any]]:
     """Split an iterable into chunks of a specified size.
     
@@ -17,49 +16,44 @@ def chunk_iterable(
 
     Args:
         iterable (Iterable): The iterable to be chunked.
-        size (int, optional): The size of each chunk. Default is 1.
+        n (int, optional): The size of each chunk. Default is 1.
 
     Yields:
         Iterator[Iterable[Any]]: An iterator yielding chunks of the input 
                                  iterable.
         
     Raises:
-        TypeError: If the input is not an iterable or the size is not an
-                   integer.
-        ValueError: If the size is not a positive integer.
+        TypeError: If `iterable` is not an iterable or the `n` is not an integer.
+        ValueError: If `n` is not a positive integer.
     """
     # Validate arguments
+    # Equivalent to iterable=iter(iterable) which raises a TypeError exception,
     if not isinstance(iterable, Iterable):
-        raise TypeError("Iterable to be chunked expected type `Iterable`. "
-                        f"Got `{type(iterable).__name__}`.")
-        
-    if not isinstance(size, int):
-        raise TypeError("Chunk size expected type `int`. "
-                        f"Got `{type(size).__name__}`.")
+        raise TypeError("Iterable to be chunked expected type `Iterable`, "
+                        f"not `{type(iterable).__name__}`.")
+
+    if not isinstance(n, int):
+        raise TypeError("Chunk size expected type `int`, "
+                        f"not `{type(n).__name__}`.")
                 
-    if size <= 0:
+    if n <= 0:
         raise ValueError("Chunk size must be a positive integer.")
     
     # Perform chunking of iterable
+    # Handle str type separately
     if isinstance(iterable, str):
-        dequed = deque(
-            iterable[i:i + size]
-            for i in range(0, len(iterable), size)
-        )
-        while dequed:
-            yield dequed.popleft()
+        for i in range(0, len(iterable), n):
+            yield iterable[i:i + n]
     else:
         dequed = deque(iterable)
-        while dequed:        
-            yield type(iterable)(
-                dequed.popleft() 
-                for _ in range(size) 
-                if dequed
-            )
+        while dequed:
+            # Preserve iterable type
+            yield (dequed.popleft() for _ in range(n) if dequed)
             
-
+            
 if __name__ == "__main__":
     import unittest
+    import sys    
     
     # Define the test
     class ChunkIterableTestCases(unittest.TestCase):
@@ -148,6 +142,31 @@ if __name__ == "__main__":
                 "Iterable to be chunked expected type `Iterable`. Got `bool`.",
                 str(exception_context.exception)
             )
+        
+        # Python >=3.12 
+        if sys.version_info >= (3, 12, 0):
+            # Python 3.12 introduced a new itertools.batched.
+            # itertools.batched is not compatible with chunk_iterable since the
+            # iterable type is preserved on chunking, whereas itertools.batched
+            # always yields tuples
+            
+            def test_compare_with_itertools_batched_list(self):
+                from itertools import batched
+                
+                iterable = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+                expected = list(chunk_iterable(iterable, 4))
+                actual = list(batched(iterable, 4))
+                self.assertEqual(expected, actual)
+            
+            def test_compare_with_itertools_batched_tuple(self):
+                from itertools import batched
+                
+                iterable = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+                expected = list(chunk_iterable(iterable, 4))
+                actual = list(batched(iterable, 4))
+                
+                with self.assertRaises(AssertionError):
+                    self.assertEqual(expected, actual)
             
     # Run the tests
     unittest.main(verbosity=2)
