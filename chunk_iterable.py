@@ -6,6 +6,8 @@ from typing import Any, Iterable
 def chunk_iterable(
     iterable: Iterable,
     n: int = 1,
+    *,
+    preserve_iterable_type: bool = True,
 ) -> Iterator[Iterable[Any]]:
     """Split an iterable into chunks of a specified size.
     
@@ -17,6 +19,9 @@ def chunk_iterable(
     Args:
         iterable (Iterable): The iterable to be chunked.
         n (int, optional): The size of each chunk. Default is 1.
+        preserve_iterable_type (bool, optional): Whether to preserve the 
+            iterable type. Default is True. If False, chunks are yielded as 
+            tuples instead.
 
     Yields:
         Iterator[Iterable[Any]]: An iterator yielding chunks of the input 
@@ -27,7 +32,8 @@ def chunk_iterable(
         ValueError: If `n` is not a positive integer.
     """
     # Validate arguments
-    # Equivalent to iterable=iter(iterable) which raises a TypeError exception,
+    # Equivalent to iterable=iter(iterable) which raises a TypeError exception
+    # if iterable cannot be iterated.
     if not isinstance(iterable, Iterable):
         raise TypeError("Iterable to be chunked expected type `Iterable`, "
                         f"not `{type(iterable).__name__}`.")
@@ -35,6 +41,10 @@ def chunk_iterable(
     if not isinstance(n, int):
         raise TypeError("Chunk size expected type `int`, "
                         f"not `{type(n).__name__}`.")
+        
+    if not isinstance(preserve_iterable_type, bool):
+        raise TypeError("Preserve iterable type expected type `bool`, "
+                        f"not `{type(preserve_iterable_type).__name__}`.")
                 
     if n <= 0:
         raise ValueError("Chunk size must be a positive integer.")
@@ -48,8 +58,11 @@ def chunk_iterable(
         dequed = deque(iterable)
         while dequed:
             # Preserve iterable type
-            yield (dequed.popleft() for _ in range(n) if dequed)
-            
+            if preserve_iterable_type:
+                yield type(iterable)(dequed.popleft() for _ in range(n) if dequed)
+            else:
+                yield tuple(dequed.popleft() for _ in range(n) if dequed)
+                
             
 if __name__ == "__main__":
     import unittest
@@ -139,9 +152,16 @@ if __name__ == "__main__":
                 list(chunk_iterable(iterable, chunk_size))
                 
             self.assertEqual(
-                "Iterable to be chunked expected type `Iterable`. Got `bool`.",
+                "Iterable to be chunked expected type `Iterable`, not `bool`.",
                 str(exception_context.exception)
             )
+            
+        def test_chunk_list_into_2s_as_tuples(self):
+            iterable = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            chunk_size = 2
+            expected = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10)]
+            actual = list(chunk_iterable(iterable, chunk_size, preserve_iterable_type=False))
+            self.assertEqual(expected, actual)
         
         # Python >=3.12 
         if sys.version_info >= (3, 12, 0):
@@ -154,19 +174,30 @@ if __name__ == "__main__":
                 from itertools import batched
                 
                 iterable = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-                expected = list(chunk_iterable(iterable, 4))
-                actual = list(batched(iterable, 4))
+                expected = list(batched(iterable, 4))
+                actual = list(chunk_iterable(iterable, 4))
                 self.assertEqual(expected, actual)
             
             def test_compare_with_itertools_batched_tuple(self):
                 from itertools import batched
                 
                 iterable = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-                expected = list(chunk_iterable(iterable, 4))
-                actual = list(batched(iterable, 4))
+                expected = list(batched(iterable, 4))
+                actual = list(chunk_iterable(iterable, 4))
                 
                 with self.assertRaises(AssertionError):
                     self.assertEqual(expected, actual)
+                    
+            def test_compare_with_itertools_batched_tuple_fix(self):
+                # Band-aid fix to be compatible with itertools.batched is to
+                # convert the chunked iterables to a tuple.
+                from itertools import batched
+                
+                iterable = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+                expected = list(batched(iterable, 4))
+                actual = list(chunk_iterable(iterable, 4, preserve_iterable_type=False))
+                
+                self.assertEqual(expected, actual)
             
     # Run the tests
     unittest.main(verbosity=2)
